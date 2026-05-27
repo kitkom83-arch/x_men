@@ -10,3 +10,15 @@ __pycache__/
 venv/
 *.log
 *.zip
+.env
+.env.*
+!.env.example
+outputs/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.log
+*.zip
