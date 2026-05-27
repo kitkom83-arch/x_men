@@ -1,0 +1,11 @@
+@echo off
+chcp 65001 >nul
+cd /d "%~dp0"
+if not exist .venv (
+  py -m venv .venv 2>nul || python -m venv .venv
+)
+.venv\Scripts\python.exe -m pip install --upgrade pip
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+if not exist .env copy .env.example .env >nul
+.venv\Scripts\python.exe oauth_user_token_helper.py
+pause
