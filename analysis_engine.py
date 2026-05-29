@@ -8,15 +8,57 @@ SPAM_WORDS_DEFAULT = [
     "เครดิตฟรี", "เว็บตรง", "แตกง่าย", "ฝากถอน", "สมัคร", "แอดไลน์", "โบนัส", "โปรโมชั่น", "แจกฟรี", "รับเครดิตฟรี",
     "ลิงก์สมัคร", "บาคาร่า", "คาสิโน", "เว็บพนัน", "แทงบอล", "slot", "casino", "bet", "หวยออนไลน์", "รับโปร",
 ]
-INTENT_WORDS_DEFAULT = [
-    "แนะนำ", "ร้านไหนดี", "ที่ไหนดี", "หา", "อยากได้", "อยากซื้อ", "ซื้อที่ไหน", "มีใคร", "ขอพิกัด", "ราคา", "โปร",
-    "ส่งไหม", "สั่ง", "รีวิว", "ถาม", "ช่วย", "แถวไหน", "นางรอง", "บุรีรัมย์",
+REAL_INTENT_PHRASES = [
+    "เว็บไหนดี",
+    "มีเว็บไหน",
+    "แนะนำเว็บ",
+    "ใครมีเว็บ",
+    "หาเว็บ",
+    "ขอเว็บ",
+    "แนะนำหน่อย",
+    "ได้จริงไหม",
+    "จ่ายจริงไหม",
+    "ถอนจริงไหม",
 ]
-PAIN_WORDS = ["แพง", "ส่งช้า", "รอนาน", "ไม่อร่อย", "ไม่ดี", "ผิดหวัง", "โกง", "ถอนเงินไม่ได้", "เสียหมด", "ติดพนัน", "หายาก", "หาไม่เจอ"]
-QUESTION_WORDS = ["ไหม", "มั้ย", "ที่ไหน", "ยังไง", "แนะนำ", "ใครรู้", "ขอ", "ร้านไหนดี", "ราคา", "?"]
-PRAISE_WORDS = ["อร่อย", "ดีมาก", "ชอบ", "น่ารัก", "ประทับใจ", "เด็ด", "หอม", "คุ้ม", "อร่อยมาก", "สวย"]
-SELL_WORDS = ["ขาย", "รับออเดอร์", "พร้อมส่ง", "โปร", "ลด", "ส่งฟรี", "สมัคร", "แอด", "จอง", "สั่งได้"]
-REVIEW_WORDS = ["รีวิว", "ลองแล้ว", "กินแล้ว", "ไปมา", "แวะ", "ซื้อมา", "ประสบการณ์"]
+INTENT_WORDS_DEFAULT = REAL_INTENT_PHRASES
+BRAND_WORDS_DEFAULT = [
+    "MAHA289",
+    "maha289.com",
+    "BN9Arena",
+    "@BN9Arena",
+    "ZWZAY57AJYYXC2QP",
+    "code.bn9.one",
+]
+PAIN_POINT_WORDS = [
+    "โกง",
+    "ถอนเงินไม่ได้",
+    "ไม่จ่าย",
+    "ติดต่อไม่ได้",
+    "โดนหลอก",
+    "ถอนช้า",
+]
+QUESTION_WORDS = ["ไหม", "มั้ย", "ที่ไหน", "ยังไง", "แนะนำ", "ใครรู้", "ขอ", "?"]
+PRAISE_WORDS = ["ดีมาก", "ชอบ", "ประทับใจ", "คุ้ม"]
+SELL_WORDS = ["ขาย", "โปร", "ลด", "ส่งฟรี", "สมัคร", "แอด", "รับโปร"]
+REVIEW_WORDS = ["รีวิว", "ลองแล้ว", "ประสบการณ์"]
+SAFE_CONTENT_IDEAS = [
+    "วิธีตรวจสอบช่องทางหลักก่อนใช้โค้ด",
+    "FAQ วิธีใช้โค้ดกิจกรรม",
+    "อ่านเงื่อนไขกิจกรรมก่อนรับสิทธิ์",
+    "ระวังเว็บปลอม / ลิงก์ปลอม",
+    "Checklist ความปลอดภัยก่อนกรอกข้อมูล",
+    "เล่นอย่างรับผิดชอบ",
+]
+ALLOWED_RECOMMENDED_ACTIONS = {
+    "review_only",
+    "insight_only",
+    "manual_reply_if_brand_mention",
+    "no_action_spam",
+    "creator_review",
+    "pain_point_report",
+}
+URL_RE = re.compile(r"(?:https?://|www\.)\S+|(?:\b[a-z0-9][a-z0-9.-]*\.(?:com|net|org|io|co|one|th|me|info|biz)\b)(?:/\S*)?", re.IGNORECASE)
+HASHTAG_RE = re.compile(r"(?<!\w)#\S+")
 
 
 def split_words(raw: str) -> List[str]:
@@ -30,6 +72,48 @@ def contains_any(text: str, words: Iterable[str]) -> bool:
     return any(w.lower() in t for w in words if w)
 
 
+def url_count(text: str) -> int:
+    return len(URL_RE.findall(text or ""))
+
+
+def hashtag_tokens(text: str) -> List[str]:
+    return HASHTAG_RE.findall(text or "")
+
+
+def text_tokens(text: str) -> List[str]:
+    return [token for token in re.split(r"\s+", (text or "").strip()) if token]
+
+
+def hashtag_ratio(text: str) -> float:
+    tokens = text_tokens(text)
+    if not tokens:
+        return 0.0
+    return len(hashtag_tokens(text)) / len(tokens)
+
+
+def is_hashtag_only(text: str) -> bool:
+    tokens = text_tokens(text)
+    if not tokens:
+        return False
+    hashtags = hashtag_tokens(text)
+    if not hashtags:
+        return False
+    non_hashtag = [token for token in tokens if not token.startswith("#")]
+    mostly_empty = not re.sub(r"[\s#\w\u0E00-\u0E7F]+", "", text or "").strip()
+    return len(hashtags) / len(tokens) > 0.60 or (not non_hashtag and mostly_empty)
+
+
+def has_real_intent(text: str) -> bool:
+    return contains_any(text, REAL_INTENT_PHRASES)
+
+
+def is_brand_mention(text: str, brand_words: List[str] | None = None) -> bool:
+    words = list(BRAND_WORDS_DEFAULT)
+    if brand_words:
+        words.extend(brand_words)
+    return contains_any(text, words)
+
+
 def normalize_int(value, default=0) -> int:
     try:
         return int(value or 0)
@@ -39,19 +123,27 @@ def normalize_int(value, default=0) -> int:
 
 def classify_text(text: str) -> str:
     t = (text or "").lower()
+    if is_hashtag_only(t):
+        return "spam_promo"
+    if url_count(t) > 1:
+        return "spam_promo"
+    if contains_any(t, PAIN_POINT_WORDS):
+        return "pain_point"
+    if is_brand_mention(t):
+        return "customer_care_manual"
     if contains_any(t, SPAM_WORDS_DEFAULT):
-        return "สแปม/โปรโมท"
-    if contains_any(t, PAIN_WORDS):
-        return "บ่น/ปัญหา"
+        return "spam_promo"
+    if has_real_intent(t):
+        return "lead_candidate"
     if contains_any(t, QUESTION_WORDS):
-        return "ถาม/สนใจซื้อ"
+        return "review_only"
     if contains_any(t, REVIEW_WORDS):
-        return "รีวิว/ประสบการณ์"
+        return "insight"
     if contains_any(t, PRAISE_WORDS):
-        return "ชม"
+        return "insight"
     if contains_any(t, SELL_WORDS):
-        return "ขายของ/โปรโมท"
-    return "ทั่วไป"
+        return "spam_promo"
+    return "general"
 
 
 def engagement(row: dict) -> int:
@@ -68,15 +160,17 @@ def lead_score(row: dict, brand_words: List[str] | None = None) -> int:
     text = row.get("text", "") or ""
     score = 0
     category = classify_text(text)
-    if category in {"ถาม/สนใจซื้อ", "บ่น/ปัญหา"}:
+    urls = url_count(text)
+    hashtag_only = is_hashtag_only(text)
+    if category == "lead_candidate" and not hashtag_only and urls <= 1:
         score += 35
-    if category in {"รีวิว/ประสบการณ์", "ชม"}:
+    if category in {"insight", "customer_care_manual", "pain_point"}:
         score += 12
-    if contains_any(text, INTENT_WORDS_DEFAULT):
-        score += 25
-    if contains_any(text, PAIN_WORDS):
-        score += 20
-    if brand_words and contains_any(text, brand_words):
+    if has_real_intent(text) and not hashtag_only:
+        score += 35
+    if contains_any(text, PAIN_POINT_WORDS):
+        score += 10
+    if is_brand_mention(text, brand_words):
         score += 15
     score += min(20, engagement(row) // 5)
     followers = normalize_int(row.get("followers_count"))
@@ -86,8 +180,16 @@ def lead_score(row: dict, brand_words: List[str] | None = None) -> int:
         score += 8
     elif followers >= 500:
         score += 4
-    if category in {"สแปม/โปรโมท", "ขายของ/โปรโมท"}:
-        score -= 35
+    if urls:
+        score -= 15
+    if urls > 1:
+        score -= 45
+    if hashtag_only:
+        score -= 80
+    elif hashtag_ratio(text) > 0.60:
+        score -= 60
+    if category == "spam_promo":
+        score -= 45
     return max(0, min(100, score))
 
 
@@ -102,32 +204,60 @@ def interest_level(score: int) -> str:
 def action_suggestion(row: dict) -> str:
     cat = row.get("category") or classify_text(row.get("text", ""))
     score = normalize_int(row.get("lead_score"))
-    if cat == "ถาม/สนใจซื้อ":
-        return "ควรตอบเร็ว + แนบพิกัด/ราคา/ทางสั่ง"
-    if cat == "บ่น/ปัญหา":
-        return "ควรตรวจรายละเอียด + ตอบเชิงช่วยเหลือ"
-    if score >= 70:
-        return "ควรเปิดดูโพสต์และพิจารณาตอบ"
-    if cat == "ชม":
-        return "เก็บเป็น UGC/ไอเดียคอนเทนต์"
-    if cat == "รีวิว/ประสบการณ์":
-        return "เก็บ insight และดู engagement"
-    if cat == "สแปม/โปรโมท":
-        return "ไม่ต้องตอบ / ใช้เป็นข้อมูลสแปม"
-    return "เก็บดูแนวโน้ม"
+    recommended = row.get("recommendedAction") or recommended_action(row)
+    if recommended == "manual_reply_if_brand_mention":
+        return "ตรวจเองเท่านั้น: brand mention ควรตอบแบบ manual หากเหมาะสม"
+    if recommended == "pain_point_report":
+        return "ทำรายงาน pain point เพื่อตรวจสอบ ไม่ยิง action อัตโนมัติ"
+    if recommended == "no_action_spam":
+        return "ไม่ต้องตอบ ใช้เป็นข้อมูลสแปม/โปรโมท"
+    if recommended == "creator_review":
+        return "ตรวจเป็น creator candidate ด้วยคนก่อน"
+    if recommended == "insight_only":
+        return "เก็บเป็น insight/content idea เท่านั้น"
+    if cat == "lead_candidate" or score >= 70:
+        return "เปิดดูเป็น lead candidate ด้วยคนก่อน ไม่มี action อัตโนมัติ"
+    return "review only"
+
+
+def recommended_action(row: dict) -> str:
+    text = row.get("text", "") or ""
+    category = row.get("category") or classify_text(text)
+    score = normalize_int(row.get("lead_score"))
+    followers = normalize_int(row.get("followers_count"))
+    if category == "pain_point":
+        return "pain_point_report"
+    if category == "customer_care_manual":
+        return "manual_reply_if_brand_mention"
+    if category == "spam_promo" or is_hashtag_only(text) or url_count(text) > 1:
+        return "no_action_spam"
+    if followers >= 3000 and score >= 35:
+        return "creator_review"
+    if category == "insight":
+        return "insight_only"
+    return "review_only"
+
+
+def should_include_review_queue(row: dict) -> bool:
+    action = row.get("recommendedAction") or recommended_action(row)
+    if action == "no_action_spam":
+        return False
+    if action in {"manual_reply_if_brand_mention", "pain_point_report", "creator_review"}:
+        return True
+    return normalize_int(row.get("lead_score")) >= 40
 
 
 def reply_draft(row: dict, brand_name: str = "ร้านเรา") -> str:
     cat = row.get("category") or classify_text(row.get("text", ""))
-    if cat == "ถาม/สนใจซื้อ":
-        return f"สวัสดีครับ ขอบคุณที่ถามครับ {brand_name} มีรายละเอียด/พิกัด/ช่องทางสั่งให้ดูได้ครับ สนใจแบบไหนเป็นพิเศษครับ"
-    if cat == "บ่น/ปัญหา":
-        return "สวัสดีครับ ขอบคุณที่แจ้งครับ เดี๋ยวขอทราบรายละเอียดเพิ่มเติมเพื่อช่วยเช็กให้ครับ"
-    if cat == "ชม":
-        return "ขอบคุณมากครับ ดีใจที่ชอบครับ 🙏"
-    if cat == "รีวิว/ประสบการณ์":
-        return "ขอบคุณที่แชร์ประสบการณ์ครับ ขออนุญาตเก็บเป็นข้อมูลปรับปรุง/ต่อยอดนะครับ"
-    return "สวัสดีครับ ขอบคุณที่แชร์ครับ"
+    if cat == "customer_care_manual":
+        return f"ตรวจเองก่อนตอบ: หากเป็นช่องทางหลักของ {brand_name} ให้ตอบแบบสุภาพและไม่แนบลิงก์เสี่ยง"
+    if cat == "pain_point":
+        return "ตรวจเองก่อนตอบ: ขอรายละเอียดอย่างระมัดระวังและส่งต่อเป็นรายงาน pain point"
+    if cat == "lead_candidate":
+        return "ตรวจเองก่อนตอบ: ให้ข้อมูลทั่วไปและย้ำให้ตรวจสอบช่องทางหลัก/เงื่อนไขก่อนใช้โค้ด"
+    if cat == "spam_promo":
+        return "ไม่ควรตอบ"
+    return "เก็บเป็น insight / review only"
 
 
 def filter_rows(rows: List[dict], block_words_raw: str = "", require_words_raw: str = "", remove_blocked: bool = True) -> Tuple[List[dict], List[dict]]:
@@ -159,6 +289,7 @@ def analyze_rows(rows: List[dict], brand_name: str = "ร้านเรา", br
         r["engagement_score"] = engagement(r)
         r["lead_score"] = lead_score(r, brand_words)
         r["interest_level"] = interest_level(r["lead_score"])
+        r["recommendedAction"] = recommended_action(r)
         r["action_suggestion"] = action_suggestion(r)
         r["reply_draft"] = reply_draft(r, brand_name=brand_name)
         out.append(r)
@@ -182,23 +313,7 @@ def summarize(rows: List[dict]) -> dict:
 
 
 def content_ideas(rows: List[dict]) -> List[str]:
-    all_text = "\n".join(r.get("text", "") for r in rows).lower()
-    ideas = []
-    if contains_any(all_text, ["ของฝาก", "ฝาก", "กลับบ้าน"]):
-        ideas.append("รวมของฝากที่เหมาะซื้อกลับบ้าน")
-    if contains_any(all_text, ["หวานน้อย", "สุขภาพ", "น้ำตาล"]):
-        ideas.append("เมนูหวานน้อยสำหรับคนรักสุขภาพ")
-    if contains_any(all_text, ["พิกัด", "อยู่ไหน", "แถวไหน"]):
-        ideas.append("โพสต์พิกัดร้าน + แผนที่ + วิธีเดินทาง")
-    if contains_any(all_text, ["ราคา", "แพง", "คุ้ม", "โปร"]):
-        ideas.append("โปรเซ็ตคุ้มค่า / ราคาเริ่มต้นชัดเจน")
-    if contains_any(all_text, ["ส่ง", "เดลิเวอรี่", "พร้อมส่ง"]):
-        ideas.append("คอนเทนต์พร้อมส่ง/บริการส่งในพื้นที่")
-    if contains_any(all_text, ["เค้ก", "วันเกิด"]):
-        ideas.append("เค้กวันเกิด/ขนมจัดเซ็ตสำหรับงานสำคัญ")
-    if not ideas:
-        ideas = ["สรุปประเด็นที่คนพูดถึงมากสุด", "โพสต์ถาม-ตอบจากคำถามลูกค้าจริง", "คอนเทนต์รีวิวจากโพสต์ที่ engagement สูง"]
-    return ideas[:8]
+    return SAFE_CONTENT_IDEAS[:8]
 
 
 def creator_scores(rows: List[dict]) -> List[dict]:

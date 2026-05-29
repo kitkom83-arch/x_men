@@ -9,7 +9,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from action_queue import load_actions, mark_action_status, queue_action
-from analysis_engine import SPAM_WORDS_DEFAULT, INTENT_WORDS_DEFAULT, analyze_rows, creator_scores, filter_rows, split_words, summarize
+from analysis_engine import SPAM_WORDS_DEFAULT, INTENT_WORDS_DEFAULT, analyze_rows, creator_scores, filter_rows, should_include_review_queue, split_words, summarize
 from cost_guard import estimate_recent_search_cost, format_cost_warning
 from policy_guard import check_action_policy, format_policy_warnings
 from recipes import RECIPES, recipe_names
@@ -970,10 +970,11 @@ class App:
         save_csv(run_dir / "raw_posts_before_filter.csv", raw)
         save_csv(run_dir / "filtered_out.csv", removed)
         save_csv(run_dir / "posts.csv", rows)
-        save_csv(run_dir / "lead_list.csv", [r for r in rows if int(r.get("lead_score", 0)) >= 40])
+        lead_rows = [r for r in rows if should_include_review_queue(r)]
+        save_csv(run_dir / "lead_list.csv", lead_rows)
         save_csv(run_dir / "creators.csv", creators)
         save_json(run_dir / "summary.json", summary)
-        save_excel(run_dir / "report.xlsx", {"posts": rows, "lead_list": [r for r in rows if int(r.get("lead_score", 0)) >= 40], "creators": creators, "filtered_out": removed}, summary)
+        save_excel(run_dir / "report.xlsx", {"posts": rows, "lead_list": lead_rows, "creators": creators, "filtered_out": removed}, summary)
         save_dashboard(run_dir / "dashboard.html", "BN9 Social Listening Report", summary, rows, creators=creators)
         self.last_run_dir, self.last_rows, self.last_creators = run_dir, rows, creators
         files = "raw_posts_before_filter.csv, filtered_out.csv, posts.csv, lead_list.csv, creators.csv, summary.json, report.xlsx, dashboard.html"
@@ -999,10 +1000,11 @@ class App:
         summary = summarize(rows)
         run_dir = now_run_dir("csv_analysis")
         save_csv(run_dir / "posts.csv", rows)
-        save_csv(run_dir / "lead_list.csv", [r for r in rows if int(r.get("lead_score", 0)) >= 40])
+        lead_rows = [r for r in rows if should_include_review_queue(r)]
+        save_csv(run_dir / "lead_list.csv", lead_rows)
         save_csv(run_dir / "creators.csv", creators)
         save_json(run_dir / "summary.json", summary)
-        save_excel(run_dir / "report.xlsx", {"posts": rows, "lead_list": [r for r in rows if int(r.get("lead_score", 0)) >= 40], "creators": creators}, summary)
+        save_excel(run_dir / "report.xlsx", {"posts": rows, "lead_list": lead_rows, "creators": creators}, summary)
         save_dashboard(run_dir / "dashboard.html", "BN9 CSV Analysis Report", summary, rows, creators=creators)
         self.last_run_dir, self.last_rows, self.last_creators = run_dir, rows, creators
         self.log(f"วิเคราะห์ CSV เสร็จ: {run_dir}")
@@ -1015,7 +1017,14 @@ class App:
         trends = payload.get("data", []) or []
         self.last_trends = trends
         run_dir = now_run_dir("trends")
-        summary = {"total_posts": 0, "high_interest": 0, "medium_interest": 0, "categories": {}, "content_ideas": ["เลือกเทรนด์ที่เข้ากับแบรนด์แล้วทำคอนเทนต์เร็ว"]}
+        summary = {"total_posts": 0, "high_interest": 0, "medium_interest": 0, "categories": {}, "content_ideas": [
+            "วิธีตรวจสอบช่องทางหลักก่อนใช้โค้ด",
+            "FAQ วิธีใช้โค้ดกิจกรรม",
+            "อ่านเงื่อนไขกิจกรรมก่อนรับสิทธิ์",
+            "ระวังเว็บปลอม / ลิงก์ปลอม",
+            "Checklist ความปลอดภัยก่อนกรอกข้อมูล",
+            "เล่นอย่างรับผิดชอบ",
+        ]}
         save_csv(run_dir / "trends.csv", trends)
         save_excel(run_dir / "trends.xlsx", {"trends": trends}, {"woeid": self.woeid_var.get(), "count": len(trends)})
         save_dashboard(run_dir / "dashboard.html", "BN9 Trend Radar", summary, [], trends=trends)
@@ -1103,8 +1112,9 @@ class App:
         summary = summarize(rows)
         run_dir = now_run_dir("mentions")
         save_csv(run_dir / "mentions.csv", rows)
-        save_csv(run_dir / "care_queue.csv", [r for r in rows if int(r.get("lead_score", 0)) >= 30])
-        save_excel(run_dir / "care_report.xlsx", {"mentions": rows, "care_queue": [r for r in rows if int(r.get("lead_score", 0)) >= 30]}, summary)
+        care_rows = [r for r in rows if should_include_review_queue(r)]
+        save_csv(run_dir / "care_queue.csv", care_rows)
+        save_excel(run_dir / "care_report.xlsx", {"mentions": rows, "care_queue": care_rows}, summary)
         save_dashboard(run_dir / "dashboard.html", "BN9 Customer Care Queue", summary, rows)
         self.last_run_dir, self.last_rows = run_dir, rows
         self.care_box.delete("1.0", "end")

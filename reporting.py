@@ -15,6 +15,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
 OUTPUT_DIR = Path("outputs")
+MANUAL_REVIEW_ACTIONS = {"manual_reply_if_brand_mention", "pain_point_report", "creator_review"}
 
 
 def now_run_dir(prefix: str = "run") -> Path:
@@ -46,6 +47,24 @@ def save_json(path: Path, data) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _int_value(value, default: int = 0) -> int:
+    try:
+        return int(value or 0)
+    except Exception:
+        return default
+
+
+def _dashboard_review_rows(rows: List[dict]) -> List[dict]:
+    review_rows = []
+    for row in rows:
+        action = str(row.get("recommendedAction") or "")
+        if action == "no_action_spam":
+            continue
+        if action in MANUAL_REVIEW_ACTIONS or _int_value(row.get("lead_score")) >= 40:
+            review_rows.append(row)
+    return review_rows
+
+
 def _sheet_from_rows(wb: Workbook, title: str, rows: List[dict]) -> None:
     ws = wb.create_sheet(title=title[:31])
     if not rows:
@@ -73,7 +92,7 @@ def _sheet_from_rows(wb: Workbook, title: str, rows: List[dict]) -> None:
     ws.freeze_panes = "A2"
     for idx, key in enumerate(keys, start=1):
         width = min(60, max(12, len(key) + 2))
-        if key in {"text", "reply_draft", "action_suggestion", "sample_text", "user_description"}:
+        if key in {"text", "reply_draft", "action_suggestion", "recommendedAction", "sample_text", "user_description"}:
             width = 45
         if key == "url":
             width = 42
@@ -108,7 +127,7 @@ def save_excel(path: Path, sheets: dict[str, List[dict]], summary: Optional[dict
 def save_dashboard(path: Path, title: str, summary: dict, rows: List[dict], creators: Optional[List[dict]] = None, trends: Optional[List[dict]] = None) -> None:
     cats = summary.get("categories", {}) or {}
     ideas = summary.get("content_ideas", []) or []
-    top = rows[:20]
+    top = _dashboard_review_rows(rows)[:20]
     creators = creators or []
     trends = trends or []
     html = [
@@ -142,7 +161,7 @@ def save_dashboard(path: Path, title: str, summary: dict, rows: List[dict], crea
         for c in creators[:20]:
             html.append(f"<tr><td class='score'>{escape(str(c.get('creator_score','')))}</td><td>@{escape(str(c.get('username','')))}</td><td>{escape(str(c.get('followers_count','')))}</td><td>{escape(str(c.get('post_count','')))}</td><td>{escape(str(c.get('sample_text','')))}</td></tr>")
         html.append("</table></div>")
-    html.append("<div class='card'><h2>Lead Queue / โพสต์ที่ควรดู</h2><table><tr><th>Score</th><th>หมวด</th><th>User</th><th>ข้อความ</th><th>ควรทำอะไร</th><th>ลิงก์</th></tr>")
+    html.append("<div class='card'><h2>Lead Queue / โพสต์ที่ควรดู</h2><table><tr><th>Score</th><th>หมวด</th><th>User</th><th>ข้อความ</th><th>Recommended Action</th><th>ควรทำอะไร</th><th>ลิงก์</th></tr>")
     for r in top:
         html.append(
             "<tr>"
@@ -150,6 +169,7 @@ def save_dashboard(path: Path, title: str, summary: dict, rows: List[dict], crea
             f"<td>{escape(str(r.get('category','')))}</td>"
             f"<td>@{escape(str(r.get('username','')))}</td>"
             f"<td>{escape(str(r.get('text','')))}</td>"
+            f"<td>{escape(str(r.get('recommendedAction','')))}</td>"
             f"<td>{escape(str(r.get('action_suggestion','')))}</td>"
             f"<td><a href='{escape(str(r.get('url','')))}' target='_blank'>เปิด</a></td>"
             "</tr>"

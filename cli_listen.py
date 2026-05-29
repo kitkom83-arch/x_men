@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from analysis_engine import analyze_rows, creator_scores, filter_rows, summarize
+from analysis_engine import analyze_rows, creator_scores, filter_rows, should_include_review_queue, summarize
 from reporting import now_run_dir, save_csv, save_dashboard, save_excel, save_json
 from storage import read_env
 from telegram_notify import send_message
@@ -34,10 +34,11 @@ def main():
     save_csv(run_dir / "raw_posts_before_filter.csv", raw)
     save_csv(run_dir / "filtered_out.csv", removed)
     save_csv(run_dir / "posts.csv", rows)
-    save_csv(run_dir / "lead_list.csv", [r for r in rows if int(r.get("lead_score", 0)) >= 40])
+    lead_rows = [r for r in rows if should_include_review_queue(r)]
+    save_csv(run_dir / "lead_list.csv", lead_rows)
     save_csv(run_dir / "creators.csv", creators)
     save_json(run_dir / "summary.json", summary)
-    save_excel(run_dir / "report.xlsx", {"posts": rows, "lead_list": [r for r in rows if int(r.get("lead_score", 0)) >= 40], "creators": creators, "filtered_out": removed}, summary)
+    save_excel(run_dir / "report.xlsx", {"posts": rows, "lead_list": lead_rows, "creators": creators, "filtered_out": removed}, summary)
     save_dashboard(run_dir / "dashboard.html", "BN9 CLI Social Listening Report", summary, rows, creators=creators)
     print(f"DONE: {run_dir}")
     if args.telegram or env.get("SEND_TELEGRAM", "0") == "1":
