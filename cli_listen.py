@@ -4,9 +4,9 @@ import argparse
 from pathlib import Path
 
 from analysis_engine import analyze_rows, creator_scores, filter_rows, should_include_review_queue, summarize
-from reporting import now_run_dir, save_csv, save_dashboard, save_excel, save_json
+from reporting import attach_report_to_session, build_dashboard_hub, create_research_session, now_run_dir, save_csv, save_dashboard, save_excel, save_json
 from storage import read_env
-from telegram_notify import send_message
+from telegram_notify import TelegramError, send_message
 from x_client import XClient
 
 
@@ -15,6 +15,8 @@ def main():
     p.add_argument("--queries", default="queries.txt", help="file with one query per line")
     p.add_argument("--max-posts", type=int, default=10)
     p.add_argument("--telegram", action="store_true")
+    p.add_argument("--session-name", default="")
+    p.add_argument("--session-note", default="")
     args = p.parse_args()
     env = read_env()
     queries_file = Path(args.queries)
@@ -40,11 +42,18 @@ def main():
     save_json(run_dir / "summary.json", summary)
     save_excel(run_dir / "report.xlsx", {"posts": rows, "lead_list": lead_rows, "creators": creators, "filtered_out": removed}, summary)
     save_dashboard(run_dir / "dashboard.html", "BN9 CLI Social Listening Report", summary, rows, creators=creators)
+    if args.session_name or args.session_note:
+        session_dir = create_research_session(session_name=args.session_name, session_note=args.session_note)
+        attach_report_to_session(session_dir, "social", run_dir, inputs={"social_queries": queries})
+    build_dashboard_hub()
     print(f"DONE: {run_dir}")
     if args.telegram or env.get("SEND_TELEGRAM", "0") == "1":
         msg = f"BN9 CLI Report\nโพสต์ทั้งหมด: {summary.get('total_posts', 0)}\nความสนใจสูง: {summary.get('high_interest', 0)}\nผลลัพธ์: {run_dir}"
-        send_message(env.get("TELEGRAM_BOT_TOKEN", ""), env.get("TELEGRAM_CHAT_ID", ""), msg)
-        print("Telegram sent")
+        try:
+            send_message(env.get("TELEGRAM_BOT_TOKEN", ""), env.get("TELEGRAM_CHAT_ID", ""), msg)
+            print("Telegram sent")
+        except TelegramError as exc:
+            print(f"Telegram skipped: {exc}")
 
 
 if __name__ == "__main__":

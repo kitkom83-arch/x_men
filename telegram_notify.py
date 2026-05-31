@@ -7,6 +7,15 @@ class TelegramError(Exception):
     pass
 
 
+def _redact_telegram_token(text: str, bot_token: str = "") -> str:
+    redacted = str(text or "")
+    token = (bot_token or "").strip()
+    if token:
+        redacted = redacted.replace(token, "[ซ่อน]")
+    redacted = redacted.replace("/bot" + token + "/", "/bot[ซ่อน]/") if token else redacted
+    return redacted
+
+
 def send_message(bot_token: str, chat_id: str, text: str) -> dict:
     bot_token = (bot_token or "").strip()
     chat_id = (chat_id or "").strip()
@@ -18,7 +27,7 @@ def send_message(bot_token: str, chat_id: str, text: str) -> dict:
     try:
         resp = requests.post(url, json={"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True}, timeout=30)
     except requests.RequestException as exc:
-        raise TelegramError(f"ส่ง Telegram ไม่ได้: {exc}") from exc
+        raise TelegramError(f"ส่ง Telegram ไม่ได้: {_redact_telegram_token(str(exc), bot_token)}") from exc
     try:
         payload = resp.json()
     except Exception:
@@ -36,7 +45,7 @@ def get_updates(bot_token: str) -> dict:
     try:
         resp = requests.get(url, timeout=30)
     except requests.RequestException as exc:
-        raise TelegramError(f"อ่าน Telegram update ไม่ได้: {exc}") from exc
+        raise TelegramError(f"อ่าน Telegram update ไม่ได้: {_redact_telegram_token(str(exc), bot_token)}") from exc
     payload = resp.json()
     if resp.status_code >= 400 or not payload.get("ok", False):
         raise TelegramError(f"Telegram ERROR {resp.status_code}: {payload}")

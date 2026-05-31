@@ -13,7 +13,19 @@ from analysis_engine import SPAM_WORDS_DEFAULT, INTENT_WORDS_DEFAULT, analyze_ro
 from cost_guard import estimate_recent_search_cost, format_cost_warning
 from policy_guard import check_action_policy, format_policy_warnings
 from recipes import RECIPES, recipe_names
-from reporting import now_run_dir, open_browser, open_path, save_csv, save_dashboard, save_excel, save_json, OUTPUT_DIR
+from reporting import (
+    OUTPUT_DIR,
+    attach_report_to_session,
+    build_dashboard_hub,
+    ensure_research_session,
+    now_run_dir,
+    open_browser,
+    open_path,
+    save_csv,
+    save_dashboard,
+    save_excel,
+    save_json,
+)
 from scope_guard import format_scope_warning
 from storage import read_env, write_env, ENV_PATH
 from telegram_notify import TelegramError, latest_chat_id, send_message
@@ -144,6 +156,7 @@ class App:
         self.last_rows: list[dict] = []
         self.last_creators: list[dict] = []
         self.last_trends: list[dict] = []
+        self.current_session_dir: Path | None = None
         self.running = False
 
         self._vars()
@@ -184,6 +197,8 @@ class App:
         self.ads_account_var = tk.StringVar(value=e.get("ADS_ACCOUNT_ID", ""))
         self.ads_base_var = tk.StringVar(value=e.get("ADS_API_BASE_URL", DEFAULT_ADS_API_BASE_URL))
         self.start_status_var = tk.StringVar(value="")
+        self.session_name_var = tk.StringVar(value="")
+        self.session_note_var = tk.StringVar(value="")
 
     def _ui(self):
         global _STATUS_VAR
@@ -191,7 +206,17 @@ class App:
         root = self.root
         root.columnconfigure(0, weight=1)
         root.rowconfigure(1, weight=1)
-        ttk.Label(root, text=APP_TITLE, font=("Segoe UI", 18, "bold")).grid(row=0, column=0, sticky="w", padx=16, pady=(10, 4))
+        header = ttk.Frame(root)
+        header.grid(row=0, column=0, sticky="ew", padx=16, pady=(10, 4))
+        header.columnconfigure(0, weight=1)
+        header.columnconfigure(2, weight=0)
+        header.columnconfigure(4, weight=0)
+        ttk.Label(header, text=APP_TITLE, font=("Segoe UI", 18, "bold")).grid(row=0, column=0, sticky="w", padx=(0, 12))
+        ttk.Label(header, text="ชื่อรอบค้นหา").grid(row=0, column=1, sticky="e", padx=(8, 4))
+        ttk.Entry(header, textvariable=self.session_name_var, width=24).grid(row=0, column=2, sticky="ew", padx=(0, 8))
+        ttk.Label(header, text="คำอธิบายรอบนี้").grid(row=0, column=3, sticky="e", padx=(8, 4))
+        ttk.Entry(header, textvariable=self.session_note_var, width=42).grid(row=0, column=4, sticky="ew", padx=(0, 8))
+        ttk.Button(header, text="เริ่มรอบใหม่", command=self.start_new_research_session).grid(row=0, column=5, padx=(0, 0))
         self.nb = ttk.Notebook(root)
         self.nb.grid(row=1, column=0, sticky="nsew", padx=12, pady=8)
 
@@ -234,6 +259,7 @@ class App:
         ttk.Label(footer, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
         ttk.Button(footer, text="เปิด outputs", command=lambda: open_path(OUTPUT_DIR)).grid(row=0, column=1, padx=4)
         ttk.Button(footer, text="เปิด Dashboard ล่าสุด", command=self.open_last_dashboard).grid(row=0, column=2, padx=4)
+        ttk.Button(footer, text="เปิด Dashboard รวม", command=self.open_dashboard_hub).grid(row=0, column=3, padx=4)
 
     def _start_tab(self):
         f = self.tab_start
@@ -261,7 +287,8 @@ class App:
         ttk.Button(actions, text="เปิด Social Listening", command=lambda: self.nb.select(self.tab_listen)).grid(row=0, column=2, padx=4, pady=4)
         ttk.Button(actions, text="เปิด outputs", command=lambda: open_path(OUTPUT_DIR)).grid(row=0, column=3, padx=4, pady=4)
         ttk.Button(actions, text="เปิด Dashboard ล่าสุด", command=self.open_last_dashboard).grid(row=0, column=4, padx=4, pady=4)
-        ttk.Button(actions, text="อัปเดตสถานะ", command=self.refresh_start_status).grid(row=0, column=5, padx=4, pady=4)
+        ttk.Button(actions, text="เปิด Dashboard รวม", command=self.open_dashboard_hub).grid(row=0, column=5, padx=4, pady=4)
+        ttk.Button(actions, text="อัปเดตสถานะ", command=self.refresh_start_status).grid(row=0, column=6, padx=4, pady=4)
 
     def _settings_tab(self):
         f = self.tab_settings
@@ -600,6 +627,7 @@ class App:
         ttk.Button(btn, text="เปิด Dashboard ล่าสุด", command=self.open_last_dashboard).grid(row=0, column=2, padx=4)
         ttk.Button(btn, text="เปิด CSV ล่าสุด", command=self.open_latest_csv).grid(row=0, column=3, padx=4)
         ttk.Button(btn, text="เปิดโฟลเดอร์รอบล่าสุด", command=self.open_latest_run_dir).grid(row=0, column=4, padx=4)
+        ttk.Button(btn, text="เปิด Dashboard รวม", command=self.open_dashboard_hub).grid(row=0, column=5, padx=4)
 
     def _entry(self, parent, row, label, var, secret=False):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=12, pady=5)
@@ -620,6 +648,26 @@ class App:
 
     def client(self) -> XClient:
         return XClient(self.bearer_var.get(), self.user_token_var.get(), self.api_base_var.get())
+
+    def ensure_current_research_session(self) -> Path:
+        self.current_session_dir = ensure_research_session(
+            OUTPUT_DIR,
+            self.session_name_var.get(),
+            self.session_note_var.get(),
+            self.current_session_dir,
+        )
+        return self.current_session_dir
+
+    def start_new_research_session(self):
+        self.current_session_dir = None
+        session_dir = self.ensure_current_research_session()
+        self.log(f"เริ่ม Research Session ใหม่: {session_dir}")
+        self.rebuild_dashboard_hub()
+
+    def attach_current_session_report(self, report_key: str, run_dir: Path, inputs: dict | None = None):
+        session_dir = self.ensure_current_research_session()
+        dashboard = attach_report_to_session(session_dir, report_key, run_dir, inputs=inputs or {})
+        self.log(f"ผูก report เข้ากับ Research Session แล้ว: {dashboard}")
 
     def save_settings(self):
         bearer = self.bearer_var.get().strip()
@@ -923,6 +971,7 @@ class App:
         run_dir = now_run_dir("counts")
         save_csv(run_dir / "counts.csv", rows)
         save_excel(run_dir / "counts.xlsx", {"counts": rows}, {"type": "recent_counts", "queries": len(qs)})
+        self.rebuild_dashboard_hub()
         self.last_run_dir = run_dir
         self.log(f"Output folder: {run_dir}")
         self.log("Done: เช็คจำนวนเสร็จ")
@@ -976,6 +1025,8 @@ class App:
         save_json(run_dir / "summary.json", summary)
         save_excel(run_dir / "report.xlsx", {"posts": rows, "lead_list": lead_rows, "creators": creators, "filtered_out": removed}, summary)
         save_dashboard(run_dir / "dashboard.html", "BN9 Social Listening Report", summary, rows, creators=creators)
+        self.attach_current_session_report("social", run_dir, {"social_queries": qs})
+        self.rebuild_dashboard_hub()
         self.last_run_dir, self.last_rows, self.last_creators = run_dir, rows, creators
         files = "raw_posts_before_filter.csv, filtered_out.csv, posts.csv, lead_list.csv, creators.csv, summary.json, report.xlsx, dashboard.html"
         summary_msg = f"จำนวนโพสต์ที่ดึงได้: {len(raw)}\nจำนวนหลังกรอง: {len(rows)}\nโฟลเดอร์ output: {run_dir}\nไฟล์ที่สร้าง: {files}\nปุ่มเปิด dashboard: ใช้ปุ่ม เปิด Dashboard ล่าสุด"
@@ -1006,6 +1057,8 @@ class App:
         save_json(run_dir / "summary.json", summary)
         save_excel(run_dir / "report.xlsx", {"posts": rows, "lead_list": lead_rows, "creators": creators}, summary)
         save_dashboard(run_dir / "dashboard.html", "BN9 CSV Analysis Report", summary, rows, creators=creators)
+        self.attach_current_session_report("social", run_dir, {"social_queries": [Path(path).name]})
+        self.rebuild_dashboard_hub()
         self.last_run_dir, self.last_rows, self.last_creators = run_dir, rows, creators
         self.log(f"วิเคราะห์ CSV เสร็จ: {run_dir}")
 
@@ -1028,6 +1081,8 @@ class App:
         save_csv(run_dir / "trends.csv", trends)
         save_excel(run_dir / "trends.xlsx", {"trends": trends}, {"woeid": self.woeid_var.get(), "count": len(trends)})
         save_dashboard(run_dir / "dashboard.html", "BN9 Trend Radar", summary, [], trends=trends)
+        self.attach_current_session_report("trends", run_dir, {"trend_woeid": self.woeid_var.get()})
+        self.rebuild_dashboard_hub()
         self.last_run_dir = run_dir
         self.trend_box.delete("1.0", "end")
         for t in trends:
@@ -1068,7 +1123,9 @@ class App:
         save_csv(run_dir / "competitor_posts.csv", rows)
         save_json(run_dir / "summary.json", summary)
         save_excel(run_dir / "competitor_report.xlsx", {"profiles": profiles, "posts": rows}, summary)
-        save_dashboard(run_dir / "dashboard.html", "BN9 Competitor Watch", summary, rows)
+        save_dashboard(run_dir / "dashboard.html", "BN9 Competitor Watch", summary, rows, competitor_profiles=profiles)
+        self.attach_current_session_report("competitor", run_dir, {"competitor_usernames": users})
+        self.rebuild_dashboard_hub()
         self.last_run_dir, self.last_rows = run_dir, rows
         self.comp_box.delete("1.0", "end")
         self.comp_box.insert("end", f"API result count: ดึงคู่แข่ง {len(profiles)} บัญชี / {len(rows)} โพสต์\nOutput folder: {run_dir}\nไฟล์ที่สร้าง: competitor_profiles.csv, competitor_posts.csv, competitor_report.xlsx, dashboard.html\nDone\n")
@@ -1089,6 +1146,9 @@ class App:
             self.creator_box.insert("end", "score | username | followers | posts | sample\n")
             for c in self.last_creators[:30]:
                 self.creator_box.insert("end", f"{c.get('creator_score')} | @{c.get('username')} | followers={c.get('followers_count')} | posts={c.get('post_count')} | {c.get('sample_text','')[:120]}\n")
+            if self.last_run_dir:
+                self.attach_current_session_report("creator", self.last_run_dir, {"creator_query": self.creator_query_text.get("1.0", "end").splitlines()})
+                self.rebuild_dashboard_hub()
             self.log(f"API result count: พบ creator candidates {len(self.last_creators)} ราย")
             self.log("Done: Creator Finder เสร็จ")
         finally:
@@ -1116,6 +1176,8 @@ class App:
         save_csv(run_dir / "care_queue.csv", care_rows)
         save_excel(run_dir / "care_report.xlsx", {"mentions": rows, "care_queue": care_rows}, summary)
         save_dashboard(run_dir / "dashboard.html", "BN9 Customer Care Queue", summary, rows)
+        self.attach_current_session_report("care", run_dir, {"care_user_id": uid})
+        self.rebuild_dashboard_hub()
         self.last_run_dir, self.last_rows = run_dir, rows
         self.care_box.delete("1.0", "end")
         for r in rows[:30]:
@@ -1335,6 +1397,15 @@ class App:
             open_browser(dash)
         else:
             open_path(run_dir)
+
+    def rebuild_dashboard_hub(self) -> Path:
+        hub = build_dashboard_hub(OUTPUT_DIR)
+        self.log(f"อัปเดต Dashboard รวมแล้ว: {hub}")
+        return hub
+
+    def open_dashboard_hub(self):
+        hub = self.rebuild_dashboard_hub()
+        open_browser(hub)
 
 
 def main():
