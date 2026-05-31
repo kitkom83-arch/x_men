@@ -100,12 +100,46 @@ def _profiles_by_id(path: Path, profiles: Optional[List[dict]] = None) -> dict:
     return {str(row.get("id") or ""): row for row in rows if row.get("id")}
 
 
-def _competitor_post_id(row: dict) -> str:
+def _post_id(row: dict) -> str:
     return str(row.get("post_id") or row.get("id") or row.get("tweet_id") or "").strip()
 
 
-def _competitor_username(row: dict, profiles_by_id: dict) -> str:
+def _username(row: dict) -> str:
+    return str(row.get("username") or "").strip().lstrip("@")
+
+
+def _x_post_url(row: dict) -> str:
+    post_id = _post_id(row)
+    if not post_id:
+        return ""
+    username = _username(row)
+    if username:
+        return f"https://x.com/{username}/status/{post_id}"
+    return f"https://x.com/i/web/status/{post_id}"
+
+
+def _x_sample_url(row: dict) -> str:
+    sample_url = str(row.get("sample_url") or "").strip()
+    if "/status/" in sample_url and ("x.com/" in sample_url or "twitter.com/" in sample_url):
+        return sample_url.replace("https://twitter.com/", "https://x.com/")
+    post_id = str(row.get("sample_post_id") or row.get("post_id") or row.get("id") or "").strip()
     username = str(row.get("username") or "").strip().lstrip("@")
+    if post_id and username:
+        return f"https://x.com/{username}/status/{post_id}"
+    if post_id:
+        return f"https://x.com/i/web/status/{post_id}"
+    return ""
+
+
+def _open_post_link(row: dict, label: str = "Open Post") -> str:
+    url = _x_post_url(row)
+    if not url:
+        return "-"
+    return f"<a class='open-link' href='{escape(url)}' target='_blank' rel='noopener noreferrer'>{escape(label)}</a>"
+
+
+def _competitor_username(row: dict, profiles_by_id: dict) -> str:
+    username = _username(row)
     if username:
         return username
     profile = profiles_by_id.get(str(row.get("author_id") or ""))
@@ -113,10 +147,12 @@ def _competitor_username(row: dict, profiles_by_id: dict) -> str:
 
 
 def _competitor_post_url(row: dict, username: str) -> str:
-    post_id = _competitor_post_id(row)
+    post_id = _post_id(row)
     if username and post_id:
         return f"https://x.com/{username}/status/{post_id}"
-    return str(row.get("url") or "").strip()
+    if post_id:
+        return f"https://x.com/i/web/status/{post_id}"
+    return ""
 
 
 def _render_competitor_posts_table(rows: List[dict], profiles_by_id: dict) -> str:
@@ -150,6 +186,80 @@ def _render_competitor_posts_table(rows: List[dict], profiles_by_id: dict) -> st
             f"<td>{escape(str(row.get('bookmark_count','')))}</td>"
             f"<td>{escape(str(row.get('impression_count','')))}</td>"
             f"<td>{open_link}</td>"
+            "</tr>"
+        )
+    parts.append("</table></div></div>")
+    return "\n".join(parts)
+
+
+def _render_social_posts_table(rows: List[dict]) -> str:
+    parts = [
+        "<div class='card'><h2>Social Listening Posts</h2>",
+        "<div class='table-wrap'><table><tr>"
+        "<th>score</th><th>category</th><th>username</th><th>created_at</th><th>text</th>"
+        "<th>recommendedAction</th><th>like_count</th><th>reply_count</th><th>retweet_count</th>"
+        "<th>quote_count</th><th>Open Post</th></tr>",
+    ]
+    for row in rows:
+        parts.append(
+            "<tr>"
+            f"<td class='score'>{escape(str(row.get('score', row.get('lead_score',''))))}</td>"
+            f"<td>{escape(str(row.get('category','')))}</td>"
+            f"<td>@{escape(_username(row))}</td>"
+            f"<td class='nowrap'>{escape(str(row.get('created_at','')))}</td>"
+            f"<td>{escape(str(row.get('text','')))}</td>"
+            f"<td>{escape(str(row.get('recommendedAction','')))}</td>"
+            f"<td>{escape(str(row.get('like_count','')))}</td>"
+            f"<td>{escape(str(row.get('reply_count','')))}</td>"
+            f"<td>{escape(str(row.get('retweet_count','')))}</td>"
+            f"<td>{escape(str(row.get('quote_count','')))}</td>"
+            f"<td>{_open_post_link(row)}</td>"
+            "</tr>"
+        )
+    parts.append("</table></div></div>")
+    return "\n".join(parts)
+
+
+def _render_creator_table(creators: List[dict]) -> str:
+    parts = [
+        "<div class='card'><h2>Creator Finder</h2>",
+        "<div class='table-wrap'><table><tr><th>Score</th><th>User</th><th>Followers</th><th>Posts</th><th>Sample</th><th>Open Sample</th></tr>",
+    ]
+    for creator in creators[:20]:
+        sample_url = _x_sample_url(creator)
+        sample_link = (
+            f"<a class='open-link' href='{escape(sample_url)}' target='_blank' rel='noopener noreferrer'>Open Sample</a>"
+            if sample_url else "-"
+        )
+        parts.append(
+            "<tr>"
+            f"<td class='score'>{escape(str(creator.get('creator_score','')))}</td>"
+            f"<td>@{escape(str(creator.get('username','')))}</td>"
+            f"<td>{escape(str(creator.get('followers_count','')))}</td>"
+            f"<td>{escape(str(creator.get('post_count','')))}</td>"
+            f"<td>{escape(str(creator.get('sample_text','')))}</td>"
+            f"<td>{sample_link}</td>"
+            "</tr>"
+        )
+    parts.append("</table></div></div>")
+    return "\n".join(parts)
+
+
+def _render_lead_queue_table(rows: List[dict]) -> str:
+    parts = [
+        "<div class='card'><h2>Lead Queue / โพสต์ที่ควรดู</h2>",
+        "<div class='table-wrap'><table><tr><th>Score</th><th>หมวด</th><th>User</th><th>ข้อความ</th><th>Recommended Action</th><th>ควรทำอะไร</th><th>ลิงก์</th></tr>",
+    ]
+    for row in rows:
+        parts.append(
+            "<tr>"
+            f"<td class='score'>{escape(str(row.get('lead_score','')))}</td>"
+            f"<td>{escape(str(row.get('category','')))}</td>"
+            f"<td>@{escape(_username(row))}</td>"
+            f"<td>{escape(str(row.get('text','')))}</td>"
+            f"<td>{escape(str(row.get('recommendedAction','')))}</td>"
+            f"<td>{escape(str(row.get('action_suggestion','')))}</td>"
+            f"<td>{_open_post_link(row)}</td>"
             "</tr>"
         )
     parts.append("</table></div></div>")
@@ -376,6 +486,11 @@ def build_session_dashboard(session_dir: str | Path) -> Path:
     meta = load_session_meta(session_path)
     session_path.mkdir(parents=True, exist_ok=True)
     inputs = meta.get("inputs") or {}
+    social_dir = _report_folder_from_meta(session_path, meta, "social")
+    social_summary = _load_summary(social_dir) if social_dir else {}
+    social_posts = _read_csv_rows(social_dir / "posts.csv") if social_dir else []
+    social_creators = _read_csv_rows(social_dir / "creators.csv") if social_dir else []
+    social_leads = _read_csv_rows(social_dir / "lead_list.csv") if social_dir else []
     competitor_dir = _report_folder_from_meta(session_path, meta, "competitor")
     competitor_table = ""
     if competitor_dir:
@@ -429,6 +544,20 @@ def build_session_dashboard(session_dir: str | Path) -> Path:
         f"<p>{''.join(report_links) if report_links else 'ยังไม่มีรายงานใน session นี้'}</p>",
         "</section>",
     ]
+    if social_dir:
+        html.extend([
+            "<section><h2>Social Summary</h2>",
+            "<div class='cards'>",
+            f"<div class='card'><b>โพสต์ทั้งหมด</b><span style='font-size:28px'>{escape(str(social_summary.get('total_posts', len(social_posts))))}</span></div>",
+            f"<div class='card'><b>ความสนใจสูง</b><span style='font-size:28px'>{escape(str(social_summary.get('high_interest', 0)))}</span></div>",
+            f"<div class='card'><b>หมวดโพสต์</b>{escape(_category_summary(social_summary) or '-')}</div>",
+            "</div></section>",
+        ])
+        if social_posts:
+            html.append(_render_social_posts_table(social_posts))
+        if social_creators:
+            html.append(_render_creator_table(social_creators))
+        html.append(_render_lead_queue_table(social_leads or _dashboard_review_rows(social_posts)))
     if competitor_table:
         html.append(competitor_table)
     html.append("</main></body></html>")
@@ -741,6 +870,7 @@ def save_dashboard(
     creators = creators or []
     trends = trends or []
     is_competitor_dashboard = "competitor" in title.lower()
+    is_social_dashboard = "social listening" in title.lower() or "csv analysis" in title.lower()
     competitor_profiles_by_id = _profiles_by_id(path.parent / "competitor_profiles.csv", competitor_profiles) if is_competitor_dashboard else {}
     html = [
         "<!doctype html><html><head><meta charset='utf-8'>",
@@ -769,27 +899,14 @@ def save_dashboard(
         for r in trends[:30]:
             html.append(f"<tr><td>{escape(str(r.get('trend_name','')))}</td><td>{escape(str(r.get('tweet_count','')))}</td></tr>")
         html.append("</table></div>")
+    if is_social_dashboard and rows:
+        html.append(_render_social_posts_table(rows))
     if creators:
-        html.append("<div class='card'><h2>Creator Finder</h2><table><tr><th>Score</th><th>User</th><th>Followers</th><th>Posts</th><th>Sample</th></tr>")
-        for c in creators[:20]:
-            html.append(f"<tr><td class='score'>{escape(str(c.get('creator_score','')))}</td><td>@{escape(str(c.get('username','')))}</td><td>{escape(str(c.get('followers_count','')))}</td><td>{escape(str(c.get('post_count','')))}</td><td>{escape(str(c.get('sample_text','')))}</td></tr>")
-        html.append("</table></div>")
+        html.append(_render_creator_table(creators))
     if is_competitor_dashboard:
         html.append(_render_competitor_posts_table(rows, competitor_profiles_by_id))
-    html.append("<div class='card'><h2>Lead Queue / โพสต์ที่ควรดู</h2><table><tr><th>Score</th><th>หมวด</th><th>User</th><th>ข้อความ</th><th>Recommended Action</th><th>ควรทำอะไร</th><th>ลิงก์</th></tr>")
-    for r in top:
-        html.append(
-            "<tr>"
-            f"<td class='score'>{escape(str(r.get('lead_score','')))}</td>"
-            f"<td>{escape(str(r.get('category','')))}</td>"
-            f"<td>@{escape(str(r.get('username','')))}</td>"
-            f"<td>{escape(str(r.get('text','')))}</td>"
-            f"<td>{escape(str(r.get('recommendedAction','')))}</td>"
-            f"<td>{escape(str(r.get('action_suggestion','')))}</td>"
-            f"<td><a href='{escape(str(r.get('url','')))}' target='_blank'>เปิด</a></td>"
-            "</tr>"
-        )
-    html.append("</table></div></body></html>")
+    html.append(_render_lead_queue_table(top))
+    html.append("</body></html>")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(html), encoding="utf-8")
 
