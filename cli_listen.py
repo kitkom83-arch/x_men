@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from analysis_engine import analyze_rows, creator_scores, filter_rows, should_include_review_queue, summarize
+from analysis_engine import analyze_rows, creator_scores, deduplicate_rows, filter_rows, should_include_review_queue, summarize
 from reporting import attach_report_to_session, build_dashboard_hub, create_research_session, now_run_dir, save_csv, save_dashboard, save_excel, save_json
 from storage import read_env
 from telegram_notify import TelegramError, send_message
@@ -29,7 +29,7 @@ def main():
         print(f"FETCH: {q}")
         raw.extend(client.recent_search(q, max_posts=args.max_posts))
     kept, removed = filter_rows(raw, env.get("BLOCK_WORDS", ""), env.get("REQUIRE_WORDS", ""), env.get("REMOVE_BLOCKED", "1") != "0")
-    rows = analyze_rows(kept, env.get("BRAND_NAME", "ร้านเรา"), env.get("BRAND_WORDS", ""))
+    rows = deduplicate_rows(analyze_rows(kept, env.get("BRAND_NAME", "ร้านเรา"), env.get("BRAND_WORDS", "")))
     creators = creator_scores(rows)
     summary = summarize(rows)
     run_dir = now_run_dir("cli_listen")

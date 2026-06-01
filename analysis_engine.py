@@ -30,13 +30,33 @@ BRAND_WORDS_DEFAULT = [
     "code.bn9.one",
 ]
 PAIN_POINT_WORDS = [
-    "โกง",
+    "โดนโกง",
+    "เว็บโกง",
+    "โกงแล้ว",
+    "โกงจริง",
     "ถอนเงินไม่ได้",
     "ไม่จ่าย",
     "ติดต่อไม่ได้",
     "โดนหลอก",
     "ถอนช้า",
+    "แอดมินไม่ตอบ",
+    "เงินหาย",
+    "ล็อกบัญชี",
 ]
+PROMO_NEGATION_PHRASES = [
+    "ไม่มีโกง",
+    "ไม่โกง",
+    "มั่นคง",
+    "ปลอดภัย",
+    "จ่ายจริง",
+    "ถอนจริง",
+    "เว็บตรง",
+    "สมัคร",
+    "เครดิตฟรี",
+    "โปร",
+    "โบนัส",
+]
+PAIN_POINT_COMPLAINT_PHRASES = PAIN_POINT_WORDS
 QUESTION_WORDS = ["ไหม", "มั้ย", "ที่ไหน", "ยังไง", "แนะนำ", "ใครรู้", "ขอ", "?"]
 PRAISE_WORDS = ["ดีมาก", "ชอบ", "ประทับใจ", "คุ้ม"]
 SELL_WORDS = ["ขาย", "โปร", "ลด", "ส่งฟรี", "สมัคร", "แอด", "รับโปร"]
@@ -59,6 +79,7 @@ ALLOWED_RECOMMENDED_ACTIONS = {
 }
 URL_RE = re.compile(r"(?:https?://|www\.)\S+|(?:\b[a-z0-9][a-z0-9.-]*\.(?:com|net|org|io|co|one|th|me|info|biz)\b)(?:/\S*)?", re.IGNORECASE)
 HASHTAG_RE = re.compile(r"(?<!\w)#\S+")
+NON_DEDUPE_TEXT_RE = re.compile(r"[^\w\s#@\u0E00-\u0E7F]", re.UNICODE)
 
 
 def split_words(raw: str) -> List[str]:
@@ -70,6 +91,23 @@ def split_words(raw: str) -> List[str]:
 def contains_any(text: str, words: Iterable[str]) -> bool:
     t = (text or "").lower()
     return any(w.lower() in t for w in words if w)
+
+
+def normalize_post_text_for_dedupe(text: str) -> str:
+    cleaned = URL_RE.sub(" ", (text or "").lower())
+    cleaned = NON_DEDUPE_TEXT_RE.sub(" ", cleaned)
+    tokens = re.split(r"\s+", cleaned.strip())
+    seen_hashtags = set()
+    normalized_tokens = []
+    for token in tokens:
+        if not token:
+            continue
+        if token.startswith("#"):
+            if token in seen_hashtags:
+                continue
+            seen_hashtags.add(token)
+        normalized_tokens.append(token)
+    return " ".join(normalized_tokens)
 
 
 def url_count(text: str) -> int:
@@ -107,6 +145,21 @@ def has_real_intent(text: str) -> bool:
     return contains_any(text, REAL_INTENT_PHRASES)
 
 
+def is_promo_like(text: str) -> bool:
+    return url_count(text) > 0 and (
+        contains_any(text, SPAM_WORDS_DEFAULT)
+        or contains_any(text, SELL_WORDS)
+        or contains_any(text, PROMO_NEGATION_PHRASES)
+    )
+
+
+def has_pain_point_intent(text: str) -> bool:
+    t = (text or "").lower()
+    if is_promo_like(t) and contains_any(t, PROMO_NEGATION_PHRASES):
+        return False
+    return contains_any(t, PAIN_POINT_COMPLAINT_PHRASES)
+
+
 def is_brand_mention(text: str, brand_words: List[str] | None = None) -> bool:
     words = list(BRAND_WORDS_DEFAULT)
     if brand_words:
@@ -127,7 +180,9 @@ def classify_text(text: str) -> str:
         return "spam_promo"
     if url_count(t) > 1:
         return "spam_promo"
-    if contains_any(t, PAIN_POINT_WORDS):
+    if is_promo_like(t):
+        return "spam_promo"
+    if has_pain_point_intent(t):
         return "pain_point"
     if is_brand_mention(t):
         return "customer_care_manual"
@@ -168,7 +223,7 @@ def lead_score(row: dict, brand_words: List[str] | None = None) -> int:
         score += 12
     if has_real_intent(text) and not hashtag_only:
         score += 35
-    if contains_any(text, PAIN_POINT_WORDS):
+    if has_pain_point_intent(text):
         score += 10
     if is_brand_mention(text, brand_words):
         score += 15
@@ -293,6 +348,49 @@ def analyze_rows(rows: List[dict], brand_name: str = "ร้านเรา", br
         r["action_suggestion"] = action_suggestion(r)
         r["reply_draft"] = reply_draft(r, brand_name=brand_name)
         out.append(r)
+    out.sort(key=lambda x: (normalize_int(x.get("lead_score")), normalize_int(x.get("engagement_score"))), reverse=True)
+    return out
+
+
+def dedupe_key(row: dict) -> str:
+    username = (row.get("username") or row.get("author_id") or "unknown")
+    normalized = normalize_post_text_for_dedupe(row.get("text", ""))
+    return f"{str(username).strip().lower()}|{normalized}"
+
+
+def _dedupe_sort_key(row: dict) -> tuple:
+    return (
+        normalize_int(row.get("lead_score", row.get("score"))),
+        normalize_int(row.get("engagement_score")),
+        str(row.get("created_at") or ""),
+    )
+
+
+def deduplicate_rows(rows: List[dict]) -> List[dict]:
+    grouped: Dict[str, List[dict]] = defaultdict(list)
+    for row in rows:
+        key = dedupe_key(row)
+        if key.endswith("|"):
+            key = f"{key}{row.get('id') or row.get('post_id') or row.get('tweet_id') or len(grouped)}"
+        grouped[key].append(row)
+
+    out = []
+    for group in grouped.values():
+        group_sorted = sorted(group, key=_dedupe_sort_key, reverse=True)
+        kept = dict(group_sorted[0])
+        post_ids = [str(r.get("id") or r.get("post_id") or r.get("tweet_id") or "") for r in group_sorted]
+        post_ids = [pid for pid in post_ids if pid]
+        kept["duplicate_count"] = len(group_sorted)
+        kept["duplicate_post_ids"] = ", ".join(post_ids[:20])
+        kept["duplicate_examples"] = " | ".join((r.get("text", "") or "")[:160] for r in group_sorted[1:4])
+        if len(group_sorted) > 1 and is_promo_like(kept.get("text", "")):
+            kept["category"] = "spam_promo"
+            kept["lead_score"] = 0
+            kept["interest_level"] = interest_level(0)
+            kept["recommendedAction"] = "no_action_spam"
+            kept["action_suggestion"] = action_suggestion(kept)
+            kept["reply_draft"] = reply_draft(kept)
+        out.append(kept)
     out.sort(key=lambda x: (normalize_int(x.get("lead_score")), normalize_int(x.get("engagement_score"))), reverse=True)
     return out
 

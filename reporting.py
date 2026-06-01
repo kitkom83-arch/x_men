@@ -138,6 +138,14 @@ def _open_post_link(row: dict, label: str = "Open Post") -> str:
     return f"<a class='open-link' href='{escape(url)}' target='_blank' rel='noopener noreferrer'>{escape(label)}</a>"
 
 
+def _duplicate_text(row: dict) -> str:
+    try:
+        count = int(row.get("duplicate_count") or 1)
+    except Exception:
+        count = 1
+    return f"ซ้ำ {count} โพสต์" if count > 1 else "1"
+
+
 def _competitor_username(row: dict, profiles_by_id: dict) -> str:
     username = _username(row)
     if username:
@@ -198,7 +206,7 @@ def _render_social_posts_table(rows: List[dict]) -> str:
         "<div class='table-wrap'><table><tr>"
         "<th>score</th><th>category</th><th>username</th><th>created_at</th><th>text</th>"
         "<th>recommendedAction</th><th>like_count</th><th>reply_count</th><th>retweet_count</th>"
-        "<th>quote_count</th><th>Open Post</th></tr>",
+        "<th>quote_count</th><th>Duplicate count</th><th>Open Post</th></tr>",
     ]
     for row in rows:
         parts.append(
@@ -213,6 +221,7 @@ def _render_social_posts_table(rows: List[dict]) -> str:
             f"<td>{escape(str(row.get('reply_count','')))}</td>"
             f"<td>{escape(str(row.get('retweet_count','')))}</td>"
             f"<td>{escape(str(row.get('quote_count','')))}</td>"
+            f"<td>{escape(_duplicate_text(row))}</td>"
             f"<td>{_open_post_link(row)}</td>"
             "</tr>"
         )
@@ -248,7 +257,7 @@ def _render_creator_table(creators: List[dict]) -> str:
 def _render_lead_queue_table(rows: List[dict]) -> str:
     parts = [
         "<div class='card'><h2>Lead Queue / โพสต์ที่ควรดู</h2>",
-        "<div class='table-wrap'><table><tr><th>Score</th><th>หมวด</th><th>User</th><th>ข้อความ</th><th>Recommended Action</th><th>ควรทำอะไร</th><th>ลิงก์</th></tr>",
+        "<div class='table-wrap'><table><tr><th>Score</th><th>หมวด</th><th>User</th><th>ข้อความ</th><th>Recommended Action</th><th>ควรทำอะไร</th><th>Duplicate count</th><th>ลิงก์</th></tr>",
     ]
     for row in rows:
         parts.append(
@@ -259,6 +268,7 @@ def _render_lead_queue_table(rows: List[dict]) -> str:
             f"<td>{escape(str(row.get('text','')))}</td>"
             f"<td>{escape(str(row.get('recommendedAction','')))}</td>"
             f"<td>{escape(str(row.get('action_suggestion','')))}</td>"
+            f"<td>{escape(_duplicate_text(row))}</td>"
             f"<td>{_open_post_link(row)}</td>"
             "</tr>"
         )

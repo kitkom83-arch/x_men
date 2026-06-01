@@ -9,7 +9,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from action_queue import load_actions, mark_action_status, queue_action
-from analysis_engine import SPAM_WORDS_DEFAULT, INTENT_WORDS_DEFAULT, analyze_rows, creator_scores, filter_rows, should_include_review_queue, split_words, summarize
+from analysis_engine import SPAM_WORDS_DEFAULT, INTENT_WORDS_DEFAULT, analyze_rows, creator_scores, deduplicate_rows, filter_rows, should_include_review_queue, split_words, summarize
 from cost_guard import estimate_recent_search_cost, format_cost_warning
 from policy_guard import check_action_policy, format_policy_warnings
 from recipes import RECIPES, recipe_names
@@ -1012,7 +1012,7 @@ class App:
             self.log(f"API result count: ได้ {len(part)} โพสต์ | {client.rate_limit_text()}")
             append_output(getattr(self, "listen_box", None), f"{q}\nAPI result count: ได้ {len(part)} โพสต์")
         kept, removed = filter_rows(raw, self.block_words_var.get(), self.require_words_var.get(), self.remove_blocked_var.get())
-        rows = analyze_rows(kept, self.brand_name_var.get() or "ร้านเรา", self.brand_words_var.get())
+        rows = deduplicate_rows(analyze_rows(kept, self.brand_name_var.get() or "ร้านเรา", self.brand_words_var.get()))
         creators = creator_scores(rows)
         summary = summarize(rows)
         run_dir = now_run_dir("listen")
@@ -1046,7 +1046,7 @@ class App:
         import csv
         with open(path, "r", encoding="utf-8-sig", newline="") as f:
             rows = list(csv.DictReader(f))
-        rows = analyze_rows(rows, self.brand_name_var.get() or "ร้านเรา", self.brand_words_var.get())
+        rows = deduplicate_rows(analyze_rows(rows, self.brand_name_var.get() or "ร้านเรา", self.brand_words_var.get()))
         creators = creator_scores(rows)
         summary = summarize(rows)
         run_dir = now_run_dir("csv_analysis")
